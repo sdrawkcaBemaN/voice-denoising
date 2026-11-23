@@ -40,7 +40,7 @@ def normalize_audio(samples):
     return samples / 32768.0
 
 # 4. ADD GAUSSIAN NOISE
-def add_noise(clean_audio, noise_level=0.05):
+def add_noise(clean_audio, noise_level=0.01):
     noise = np.random.normal(0, noise_level, len(clean_audio))
     noisy_audio = clean_audio + noise
 
@@ -142,10 +142,10 @@ def evaluate(clean_audio, noisy_audio, denoised_audio):
     print("Denoised Audio MSE:", denoised_mse)
 
 # 10. VISUALIZE RESULTS
-def plot_results(clean_audio, noisy_audio, denoised_audio, loss_history, sample_rate):
+def plot_results(clean_audio, noisy_audio, denoised_audio, loss_history, sample_rate, result_name):
 
     # Plot the first 0.05 seconds
-    samples_to_plot = int(sample_rate * 0.05)
+    samples_to_plot = int(sample_rate * 0.5)
 
     time = np.arange(samples_to_plot) / sample_rate
 
@@ -178,60 +178,106 @@ def plot_results(clean_audio, noisy_audio, denoised_audio, loss_history, sample_
 
     plt.tight_layout()
 
-    os.makedirs("output", exist_ok=True)
-    plt.savefig("output/denoising_results.png", dpi=300)
+    os.makedirs("results", exist_ok=True)
+    plt.savefig(f"results/{result_name}_results.png", dpi=300)
 
-    plt.show()
+    plt.close()
 
-# 11. MAIN PROGRAM
-def main():
-    audio, sample_rate = read_audio("audio/clean_voice.wav")
+# 11. SAVE DENOISED AUDIO
+def save_audio(file_path, audio, sample_rate):
+    audio = np.clip(audio, -1.0, 1.0)
+    audio = (audio * 32767).astype(np.int16)
 
-    audio = normalize_audio(audio)
+    with wave.open(file_path, "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        output.writeframes(audio.tobytes())
 
-    """print("Normalized first 10 samples:", audio[:10])
-    print("Maximum amplitude:", np.max(audio))
-    print("Minimum amplitude:", np.min(audio))"""
+def process_audio_pair(clean_path, noisy_path, name):
+    clean_audio, sample_rate = read_audio(clean_path)
+    clean_audio = normalize_audio(clean_audio)
 
-    noisy_audio = add_noise(audio)
+    noisy_audio, noisy_sample_rate = read_audio(noisy_path)
+    noisy_audio = normalize_audio(noisy_audio)
 
-    """print("Noisy first 10 samples:", noisy_audio[:10])
-    print("Noisy maximum amplitude:", np.max(noisy_audio))
-    print("Noisy minimum amplitude:", np.min(noisy_audio))"""
+    if sample_rate != noisy_sample_rate:
+        raise ValueError("Clean and noisy audio must have the same sample rate.")
 
-    weights = np.array([0.0, 1.0, 0.0])
-    bias = 0.0
+    if len(clean_audio) != len(noisy_audio):
+        raise ValueError("Clean and noisy audio must have the same length.")
 
-    predictions = predict(noisy_audio, weights, bias)
+    print("\nProcessing:", name)
 
-    print("First 10 predictions:", predictions[:10])
-    print("Number of predictions:", len(predictions))
-
-    targets = audio[1:-1]
-
-    loss = calculate_loss(predictions, targets)
-    print("Initial Half-MSE:", loss)
-
-    weights, bias, loss_history = train_model(noisy_audio, audio)
-
-    print("Trained weights:", weights)
-    print("Trained bias:", bias)
-    print("Initial loss:", loss_history[0])
-    print("Final loss:", loss_history[-1])
+    weights, bias, loss_history = train_model(noisy_audio, clean_audio)
 
     denoised_audio = denoise(noisy_audio, weights, bias)
 
-    print("Denoised first 10 samples:", denoised_audio[:10])
-    print("Denoised maximum amplitude:", np.max(denoised_audio))
-    print("Denoised minimum amplitude:", np.min(denoised_audio))
-    print("Denoised samples:", len(denoised_audio))
+    save_audio(f"output/{name}_denoised.wav", denoised_audio, sample_rate)
 
-    evaluate(audio, noisy_audio, denoised_audio)
-    plot_results(audio, noisy_audio, denoised_audio, loss_history, sample_rate)
+    evaluate(clean_audio, noisy_audio, denoised_audio)
 
-    """print("Sample rate:", sample_rate)
-    print("Total samples:", len(audio))
-    print("Duration:", len(audio) / sample_rate, "seconds")"""
+    plot_results(
+        clean_audio,
+        noisy_audio,
+        denoised_audio,
+        loss_history,
+        sample_rate,
+        name
+    )
+
+
+# 12. MAIN PROGRAM
+def main():
+
+    os.makedirs("output", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
+
+    # PROCESS YOUR OWN RECORDING
+    clean_audio, sample_rate = read_audio("audio/clean_voice.wav")
+    clean_audio = normalize_audio(clean_audio)
+
+    noisy_audio = add_noise(clean_audio)
+
+    save_audio("output/noisy_voice.wav", noisy_audio, sample_rate)
+
+    weights, bias, loss_history = train_model(noisy_audio, clean_audio)
+
+    denoised_audio = denoise(noisy_audio, weights, bias)
+
+    save_audio("output/denoised_voice.wav", denoised_audio, sample_rate)
+
+    evaluate(clean_audio, noisy_audio, denoised_audio)
+
+    plot_results(
+        clean_audio,
+        noisy_audio,
+        denoised_audio,
+        loss_history,
+        sample_rate,
+        "custom"
+    )
+
+    # PROCESS DATASET RECORDINGS
+
+    clean_folder = "dataset/clean"
+    noisy_folder = "dataset/noisy"
+
+    clean_files = sorted(os.listdir(clean_folder))
+
+    # Start with 5 recordings
+    for filename in clean_files[:5]:
+
+        clean_path = os.path.join(clean_folder, filename)
+        noisy_path = os.path.join(noisy_folder, filename)
+
+        if not os.path.isfile(noisy_path):
+            print("Missing noisy file:", filename)
+            continue
+
+        name = os.path.splitext(filename)[0]
+
+        process_audio_pair(clean_path, noisy_path, name)
 
 
 if __name__ == "__main__":

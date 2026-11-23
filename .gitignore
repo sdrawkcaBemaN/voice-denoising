@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# Audio dataset
+dataset/
+
+# Generated audio files
+output/
+
+# Generated graphs
+results/
+
 # Distribution / packaging
 .Python
 build/
